@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.x-blue?style=for-the-badge&logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Platform-Linux-orange?style=for-the-badge&logo=linux)
-![Bug Bounty](https://img.shields.io/badge/Bug%20Bounty-HackerOne%20%7C%20Bugcrowd-red?style=for-the-badge)
+![Bug Bounty](https://img.shields.io/badge/Bug%20Bounty-Authorized%20Testing-red?style=for-the-badge)
 ![Version](https://img.shields.io/badge/Version-2.0-purple?style=for-the-badge)
 
 **Created by [EnCrYpTeD05](https://github.com/EnCrYpTeD05)**
@@ -72,7 +72,7 @@ Target Domain
            │
            ▼
 ┌─────────────────────────┐
-│  8. Extract POCs         │  →  vulnerableurl.txt  🎯
+│  8. Extract POCs         │  →  vulnerableurl.txt 🎯
 └─────────────────────────┘
 ```
 
@@ -83,32 +83,32 @@ Target Domain
 ### Core Features
 | Feature | Description |
 |---|---|
-| 🔍 Subdomain Enumeration | Subfinder se automatically subdomains discover karta hai |
-| ✅ Active Subdomain Check | 20 parallel threads se sirf live subdomains filter karta hai |
-| 🕷️ Parameter Discovery | ParamSpider se URLs + parameters — no timeout, 1 lakh+ parameters handle |
-| 🎯 Smart URL Filtering | login/account URLs automatically remove, single params filter |
-| 🔄 Duplicate Removal | Duplicate URLs scan se pehle clean |
+| 🔍 Subdomain Enumeration | Automatically discovers subdomains using Subfinder |
+| ✅ Active Subdomain Check | Filters only live subdomains using 20 parallel threads |
+| 🕷️ Parameter Discovery | Collects all URLs and parameters using ParamSpider — no timeout, handles 100k+ parameters |
+| 🎯 Smart URL Filtering | Automatically removes login/account URLs, filters single parameter URLs |
+| 🔄 Duplicate Removal | Removes duplicate URLs before scanning |
 | 💉 Reflected XSS Scan | Dalfox with `--mining-dom=false` — focused Reflected XSS only |
-| 🛡️ WAF Evasion | Built-in `--waf-evasion` — WAF protected sites pe bhi kaam karta hai |
-| 📋 Clean Output | WAF spam lines filter — sirf important output screen pe |
-| 🎯 POC Extraction | Confirmed vulnerable URLs alag file mein save |
+| 🛡️ WAF Evasion | Built-in `--waf-evasion` — works against WAF protected sites |
+| 📋 Clean Output | Filters WAF spam lines — only important output shown on screen |
+| 🎯 POC Extraction | Saves confirmed vulnerable URLs to a separate file |
 
 ### Stability Features
 | Feature | Description |
 |---|---|
-| 🌐 Internet Auto-Recovery | Disconnect pe wait, reconnect pe automatically resume |
-| ⚡ Rate Limit Detection | 429 detect hone pe delay auto-increase + 30s wait |
-| 📝 Error Logging | Saari errors timestamped log file mein save |
-| 🛑 Graceful Exit | Ctrl+C pe bhi progress save rehti hai |
-| 🔄 Auto Resume | Interrupted scan wahan se shuru hota hai jahan ruka tha |
+| 🌐 Internet Auto-Recovery | Waits on disconnect, automatically resumes on reconnect |
+| ⚡ Rate Limit Detection | Auto-increases delay on 429 detection + 30s wait |
+| 📝 Error Logging | All errors saved to a timestamped log file |
+| 🛑 Graceful Exit | Progress saved even on Ctrl+C |
+| 🔄 Auto Resume | Interrupted scans resume from where they left off |
 
 ### Usability Features
 | Feature | Description |
 |---|---|
-| 📊 Live Progress Bar | Har step ka real-time status |
-| 🔢 ParamSpider Live Counter | Parameters milte jaate hain — real-time count dikhata hai |
-| ⚙️ Default + Custom Mode | Dalfox apni settings ya custom flags |
-| 💻 Single Command | Poora workflow ek command mein |
+| 📊 Live Progress Bar | Real-time status for every step |
+| 🔢 ParamSpider Live Counter | Shows real-time parameter count while collecting |
+| ⚙️ Default + Custom Mode | Use Dalfox default settings or specify custom flags |
+| 💻 Single Command | Entire workflow in one command |
 
 ---
 
@@ -133,8 +133,8 @@ pip install requests
 
 ```bash
 # Clone the repo
-git clone https://github.com/EnCrYpTeD05/xss-hunter.git
-cd xss-hunter
+git clone https://github.com/EnCrYpTeD05/XSS-HUNTER.git
+cd XSS-HUNTER
 
 # Install Python dependencies
 pip install requests paramspider
@@ -202,7 +202,7 @@ rm -rf results/ parameters.txt singleparam.txt withoutfuzz.txt subdomains.txt ac
 [*] Valid target [ code:200 / size:100 ]
 [W] Reflected Payload in HTML: id=><script>alert(1)</script>
 [POC][R][GET][inHTML-URL] http://target.com/page.php?id=1%3E%3Cscript%3Ealert%281%29%3C%2Fscript%3E
-[V] Triggered XSS Payload: id="><IMG SRC=x onpageshow="alert(1)" class=dalfox>
+[V] Triggered XSS Payload (found DOM Object): id="><IMG SRC=x onpageshow="alert(1)" class=dalfox>
 [POC][V][GET][inHTML-URL] http://target.com/page.php?id=1%22%3E%3CIMG+SRC%3Dx...
 [*] [duration: 31m][issues: 5] Finish Scan!
 ```
