@@ -114,32 +114,32 @@ Target Domain
 
 ## 📋 Requirements
 
-### Tools
-| Tool | Install Command |
+| Tool | Type |
 |---|---|
 | Python 3 | Pre-installed on Kali Linux |
-| Subfinder | `go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest` |
-| ParamSpider | `pip install paramspider` |
-| Dalfox | `go install github.com/hahwul/dalfox/v2@latest` |
-
-### Python Libraries
-```bash
-pip install requests
-```
+| Subfinder | Go tool |
+| ParamSpider | Python package |
+| Dalfox | Go tool |
 
 ---
 
 ## 🛠️ Installation
 
+### Auto Install (Recommended)
+Clone the repo and run the installer — it will install everything automatically:
+
 ```bash
-# Clone the repo
 git clone https://github.com/EnCrYpTeD05/XSS-HUNTER.git
 cd XSS-HUNTER
+chmod +x install.sh && ./install.sh
+```
 
-# Install Python dependencies
+### Manual Install
+```bash
+# Python dependencies
 pip install requests paramspider
 
-# Install Go tools
+# Go tools
 go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 go install github.com/hahwul/dalfox/v2@latest
 ```
