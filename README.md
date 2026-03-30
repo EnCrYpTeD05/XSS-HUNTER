@@ -235,6 +235,7 @@ Copyright (c) 2026 EnCrYpTeD05
 ## 👤 Author
 
 **EnCrYpTeD05** | GitHub: [@EnCrYpTeD05](https://github.com/EnCrYpTeD05)
+**🌐 Website:** https://encrypted05.github.io/
 
 *"Hack Smart. Hunt Hard."* 🎯
 
