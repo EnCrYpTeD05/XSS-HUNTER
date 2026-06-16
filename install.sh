@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================
-# XSS Hunter v2.0 - Auto Installer
+# XSS Hunter v1.0 - Auto Installer
 # Usage: chmod +x install.sh && ./install.sh
 # ============================================
 
@@ -11,7 +11,7 @@ RESET="\033[0m"
 
 echo -e "${CYAN}"
 echo "============================================"
-echo "     XSS Hunter v2.0 - Auto Installer      "
+echo "     XSS Hunter v1.0 - Auto Installer      "
 echo "         Created by EnCrYpTeD05            "
 echo "============================================"
 echo -e "${RESET}"
