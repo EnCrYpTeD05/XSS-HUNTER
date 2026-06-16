@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-XSS Hunter v2.0 - Automated Reflected XSS Finding Tool
+XSS Hunter v1.0 - Automated Reflected XSS Finding Tool
 Bug Bounty Automation Script
 - Live progress bar dalfox ke liye
 - Auto internet check + wait
@@ -38,7 +38,7 @@ def banner():
     print(f"""
 {CYAN}{BOLD}
 ╔══════════════════════════════════════════════╗
-║         XSS HUNTER v2.0 - Bug Bounty         ║
+║         XSS HUNTER v1.0 - Bug Bounty         ║
 ║     Automated Reflected XSS Scanner          ║
 ║     Live Progress + Auto Resume + Clean!     ║
 ║                                              ║
@@ -69,7 +69,7 @@ def setup_logging():
 # INTERNET CHECK
 # ─────────────────────────────────────────────
 def check_internet():
-    # Multiple servers check karo — ek bhi respond kare toh internet hai
+    # Checking Multiple Server — If any of them respond then internet is available
     test_hosts = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
     for host in test_hosts:
         try:
