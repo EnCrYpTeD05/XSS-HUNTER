@@ -20,7 +20,7 @@
 
 ## 📌 Overview
 
-**XSS Hunter v2.0** is a fully automated, end-to-end **Reflected XSS vulnerability scanner** built specifically for bug bounty hunters. It chains together industry-standard open-source tools into a single seamless pipeline — from subdomain enumeration all the way to confirmed Proof-of-Concept XSS vulnerabilities.
+**XSS Hunter v1.0** is a fully automated, end-to-end **Reflected XSS vulnerability scanner** built specifically for bug bounty hunters. It chains together industry-standard open-source tools into a single seamless pipeline — from subdomain enumeration all the way to confirmed Proof-of-Concept XSS vulnerabilities.
 
 No more manual chaining of tools. No more missed parameters. Just one command.
 
