@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎯 XSS Hunter v2.0
+# 🎯 XSS Hunter v1.0
 
 ### Automated Reflected XSS Scanner for Bug Bounty Hunters
 
@@ -8,7 +8,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Platform-Linux-orange?style=for-the-badge&logo=linux)
 ![Bug Bounty](https://img.shields.io/badge/Bug%20Bounty-Authorized%20Testing-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-2.0-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-1.0-purple?style=for-the-badge)
 
 **Created by [EnCrYpTeD05](https://github.com/EnCrYpTeD05)**
 
