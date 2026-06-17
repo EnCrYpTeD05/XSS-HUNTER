@@ -565,6 +565,198 @@ def run_dalfox(input_file="withoutfuzz.txt", output_file="scan", dalfox_mode="de
 # ─────────────────────────────────────────────
 # STEP 7: EXTRACT VULNERABLE URLs
 # ─────────────────────────────────────────────
+def run_dalfox(input_file="withoutfuzz.txt", output_file="scan", dalfox_mode="default", workers=5, delay=500, timeout=30):
+    info("Starting Dalfox scan...")
+    info(f"Settings: workers={workers}, delay={delay}ms, timeout={timeout}s")
+
+    if not shutil.which("dalfox"):
+        error("dalfox is not installed! Install it: go install github.com/hahwul/dalfox/v2@latest")
+        sys.exit(1)
+
+    resume_file = "scanned_urls.txt"
+    scanned_urls = set()
+    if os.path.exists(resume_file):
+        with open(resume_file, encoding="utf-8", errors="ignore") as f:
+            scanned_urls = set(l.strip() for l in f if l.strip())
+        warn(f"Resume mode ON: {len(scanned_urls)} URLs already scanned, skipping them!")
+    elif os.path.exists(output_file):
+        os.remove(output_file)
+
+    try:
+        with open(input_file, encoding="utf-8", errors="ignore") as f:
+            all_urls = [l.strip() for l in f if l.strip()]
+    except FileNotFoundError:
+        error(f"File not found: {input_file}")
+        sys.exit(1)
+
+    pending_urls = [u for u in all_urls if u not in scanned_urls]
+    total_urls = len(all_urls)
+
+    if not pending_urls:
+        warn("All URLs have already been scanned!")
+        return output_file
+
+    info(f"Total {len(pending_urls)} URLs to scan...")
+    info("Dalfox resilient mode ON: one URL per run, crash-safe resume enabled.")
+    print()
+
+    filter_words = [
+        "Setting worker=",
+        "for WAF-Evasion",
+        "[I] Setting",
+    ]
+
+    crash_count = 0
+    url_index = 0
+
+    while url_index < len(pending_urls):
+        if globals().get("SHOULD_STOP_SCAN", lambda: False)():
+            raise InterruptedError("Scan stopped by user.")
+
+        current_url = pending_urls[url_index]
+        temp_input = "pending_urls.txt"
+        chunk_file = f"dalfox_current_{url_index + 1}.out"
+
+        with open(temp_input, "w", encoding="utf-8") as f:
+            f.write(current_url + "\n")
+
+        if os.path.exists(chunk_file):
+            os.remove(chunk_file)
+
+        wait_for_internet()
+
+        if dalfox_mode == "default":
+            dalfox_cmd = [
+                "dalfox", "file", temp_input,
+                "--mining-dom=false",
+                "--skip-bav",
+                "--waf-evasion",
+                "-o", chunk_file,
+                "--output-all",
+            ]
+        else:
+            dalfox_cmd = [
+                "dalfox", "file", temp_input,
+                "--mining-dom=false",
+                "--skip-bav",
+                "--waf-evasion",
+                "-w", str(workers),
+                "--delay", str(delay),
+                "--timeout", str(timeout),
+                "-o", chunk_file,
+                "--output-all",
+            ]
+
+        scanned_so_far = len(scanned_urls) + 1
+        progress_pct = scanned_so_far / total_urls * 100 if total_urls else 0
+        start_time = time.time()
+        captured_lines = []
+        crash_detected = False
+        rate_limited = False
+
+        print(
+            f"\r{CYAN}[Dalfox]{RESET} {GREEN}● Scanning{RESET} | "
+            f"URL: {scanned_so_far}/{total_urls} ({progress_pct:.0f}%) | "
+            f"POC: 0 | Time: 00:00  ",
+            end="", flush=True,
+        )
+
+        process = subprocess.Popen(
+            dalfox_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        for line in process.stdout:
+            if globals().get("SHOULD_STOP_SCAN", lambda: False)():
+                process.kill()
+                raise InterruptedError("Scan stopped by user.")
+
+            line = line.rstrip()
+            lower_line = line.lower()
+            captured_lines.append(line)
+
+            if "panic:" in lower_line or "fatal error:" in lower_line or "goroutine " in lower_line:
+                crash_detected = True
+
+            if "429" in lower_line or "rate limit" in lower_line or "too many requests" in lower_line:
+                rate_limited = True
+
+            if not any(fw in line for fw in filter_words):
+                print()
+                print(line)
+
+            elapsed = int(time.time() - start_time)
+            mins, secs = divmod(elapsed, 60)
+            poc_count = sum(1 for l in captured_lines if "[POC]" in l or "[W]" in l)
+            poc_display = f"{RED}{BOLD}{poc_count}{RESET}" if poc_count > 0 else str(poc_count)
+            print(
+                f"\r{CYAN}[Dalfox]{RESET} {GREEN}● Scanning{RESET} | "
+                f"URL: {scanned_so_far}/{total_urls} ({progress_pct:.0f}%) | "
+                f"POC: {poc_display} | "
+                f"Time: {mins:02d}:{secs:02d}  ",
+                end="", flush=True,
+            )
+
+        return_code = process.wait()
+
+        chunk_text = ""
+        if os.path.exists(chunk_file):
+            with open(chunk_file, "r", encoding="utf-8", errors="ignore") as cf:
+                chunk_text = cf.read()
+
+        if chunk_text:
+            with open(output_file, "a", encoding="utf-8", errors="ignore") as out:
+                if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                    out.write("\n")
+                out.write(chunk_text)
+        elif captured_lines:
+            with open(output_file, "a", encoding="utf-8", errors="ignore") as out:
+                if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                    out.write("\n")
+                out.write("\n".join(captured_lines) + "\n")
+
+        if os.path.exists(chunk_file):
+            os.remove(chunk_file)
+
+        if rate_limited:
+            print()
+            warn("Rate limit detected! Increasing delay and retrying current URL...")
+            delay = min(delay * 2, 3000)
+            time.sleep(30)
+            continue
+
+        with open(resume_file, "a", encoding="utf-8") as rf:
+            rf.write(current_url + "\n")
+        scanned_urls.add(current_url)
+
+        if crash_detected or return_code != 0:
+            crash_count += 1
+            print()
+            warn(f"Dalfox crashed on URL {scanned_so_far}/{total_urls}; saved partial output and continuing.")
+            logging.error("Dalfox crashed on URL %s with return code %s", current_url, return_code)
+
+        url_index += 1
+
+    print()
+
+    if os.path.exists("pending_urls.txt"):
+        os.remove("pending_urls.txt")
+    if os.path.exists(resume_file):
+        os.remove(resume_file)
+
+    if os.path.exists(output_file):
+        success(f"Dalfox scan complete! -> {output_file}")
+        if crash_count:
+            warn(f"Dalfox crashed on {crash_count} URL(s), but remaining URLs were scanned.")
+    else:
+        warn("Dalfox output file not created — no vulnerable URLs found.")
+
+    return output_file
+
+
 def extract_vulnerable(scan_file="scan", output_file="vulnerableurl.txt"):
     info("Extracting vulnerable URLs with [POC] and [W] tags...")
 
@@ -727,7 +919,9 @@ def run_web_scan_job(job_id):
     old_cwd = Path.cwd()
     original_wait = globals()["wait_for_internet"]
     original_popen = subprocess.Popen
+    original_stop_check = globals().get("SHOULD_STOP_SCAN", lambda: False)
     globals()["wait_for_internet"] = lambda: web_wait_for_internet(job)
+    globals()["SHOULD_STOP_SCAN"] = lambda: should_stop(job)
 
     def tracked_popen(*args, **kwargs):
         proc = original_popen(*args, **kwargs)
@@ -809,6 +1003,7 @@ def run_web_scan_job(job_id):
         append_job_log(job, f"Unexpected error: {e}")
     finally:
         globals()["wait_for_internet"] = original_wait
+        globals()["SHOULD_STOP_SCAN"] = original_stop_check
         subprocess.Popen = original_popen
         with JOB_LOCK:
             job["process"] = None
