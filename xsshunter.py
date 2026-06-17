@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-XSS Hunter v1.0 - Automated Reflected XSS Finding Tool
+XSS Hunter v2.0 - Automated Reflected XSS Finding Tool
 Bug Bounty Automation Script
 - Live progress bar dalfox ke liye
 - Auto internet check + wait
@@ -21,6 +21,13 @@ import argparse
 import time
 import signal
 import logging
+import json
+import uuid
+import webbrowser
+import contextlib
+import io
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime
 
@@ -38,7 +45,7 @@ def banner():
     print(f"""
 {CYAN}{BOLD}
 ╔══════════════════════════════════════════════╗
-║         XSS HUNTER v1.0 - Bug Bounty         ║
+║         XSS HUNTER v2.0 - Bug Bounty         ║
 ║     Automated Reflected XSS Scanner          ║
 ║     Live Progress + Auto Resume + Clean!     ║
 ║                                              ║
@@ -60,7 +67,8 @@ def setup_logging():
     logging.basicConfig(
         filename=log_file,
         level=logging.ERROR,
-        format="%(asctime)s [%(levelname)s] %(message)s"
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        force=True
     )
     info(f"Error log file: {log_file}")
     return log_file
@@ -69,7 +77,7 @@ def setup_logging():
 # INTERNET CHECK
 # ─────────────────────────────────────────────
 def check_internet():
-    # Checking Multiple Server — If any of them respond then internet is available
+    # Multiple servers check karo — ek bhi respond kare toh internet hai
     test_hosts = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
     for host in test_hosts:
         try:
@@ -255,7 +263,9 @@ def find_parameters(domain, has_subdomains, active_file="activesubdomains.txt"):
     if has_subdomains and os.path.exists(active_file):
         subprocess.run(
             ["paramspider", "-l", active_file],
-            text=True
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT
         )
         spinner_running.clear()
         t.join()
@@ -263,7 +273,9 @@ def find_parameters(domain, has_subdomains, active_file="activesubdomains.txt"):
     else:
         subprocess.run(
             ["paramspider", "-d", domain],
-            text=True
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT
         )
         spinner_running.clear()
         t.join()
@@ -586,18 +598,491 @@ def extract_vulnerable(scan_file="scan", output_file="vulnerableurl.txt"):
 # ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────
-def main():
-    banner()
-    log_file = setup_logging()
+# -----------------------------
+# WEB MODE
+# -----------------------------
+BASE_DIR = Path(__file__).resolve().parent
+WEB_DIR = BASE_DIR / "web"
+RUNS_DIR = BASE_DIR / "runs"
+JOBS = {}
+JOB_LOCK = threading.Lock()
 
+
+class WebLogSink(io.TextIOBase):
+    def __init__(self, job):
+        self.job = job
+        self.buffer = ""
+
+    def write(self, text):
+        if not text:
+            return 0
+        clean = strip_ansi(text)
+        self.buffer += clean
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            append_job_log(self.job, line.rstrip())
+        if clean.endswith("\r"):
+            append_job_log(self.job, clean.rstrip())
+            self.buffer = ""
+        return len(text)
+
+    def flush(self):
+        if self.buffer.strip():
+            append_job_log(self.job, self.buffer.strip())
+            self.buffer = ""
+
+
+def strip_ansi(text):
+    return re.sub(r"\x1b\[[0-9;]*m", "", text).replace("\r", "\n")
+
+
+def safe_domain(value):
+    value = (value or "").strip().lower()
+    value = re.sub(r"^https?://", "", value).split("/")[0]
+    if not re.fullmatch(r"[a-z0-9.-]{2,253}", value) or ".." in value:
+        raise ValueError("Enter a valid domain like example.com")
+    return value
+
+
+def job_state_path(job):
+    return Path(job["dir"]) / "job_state.json"
+
+
+def save_job(job):
+    job["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    state = {k: v for k, v in job.items() if k not in {"thread", "process"}}
+    job_state_path(job).write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def public_job(job):
+    return {k: v for k, v in job.items() if k not in {"thread", "process"}}
+
+
+def append_job_log(job, message):
+    message = message.strip()
+    if not message:
+        return
+    stamp = datetime.now().strftime("%H:%M:%S")
+    line = f"[{stamp}] {message}"
+    with JOB_LOCK:
+        job["logs"].append(line)
+        job["logs"] = job["logs"][-600:]
+        save_job(job)
+    with open(Path(job["dir"]) / "web-run.log", "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
+def set_job(job, **updates):
+    with JOB_LOCK:
+        job.update(updates)
+        save_job(job)
+
+
+def should_stop(job):
+    return bool(job.get("stop_requested"))
+
+
+def raise_if_stopped(job):
+    if should_stop(job):
+        raise InterruptedError("Scan stopped by user.")
+
+
+def list_artifacts(job):
+    run_dir = Path(job["dir"]).resolve()
+    artifacts = []
+    skip = {"job_state.json"}
+    for path in sorted(run_dir.rglob("*")):
+        if not path.is_file() or path.name in skip:
+            continue
+        rel = path.relative_to(run_dir).as_posix()
+        artifacts.append({
+            "name": rel,
+            "size": path.stat().st_size,
+            "url": f"/api/download/{job['id']}/{rel}",
+        })
+    return artifacts
+
+
+def web_wait_for_internet(job, max_wait=75):
+    if check_internet():
+        return
+    append_job_log(job, "Internet disconnected. Waiting before saving partial progress...")
+    started = time.time()
+    while time.time() - started < max_wait:
+        raise_if_stopped(job)
+        if check_internet():
+            append_job_log(job, "Internet reconnected. Continuing scan.")
+            return
+        remaining = int(max_wait - (time.time() - started))
+        set_job(job, status="waiting", message=f"Internet down. Retrying for {remaining}s.")
+        time.sleep(3)
+    set_job(job, status="paused", message="Internet did not return. Partial progress saved.")
+    raise ConnectionError("Internet did not return in time; partial progress saved.")
+
+
+def run_web_scan_job(job_id):
+    job = JOBS[job_id]
+    config = job["config"]
+    run_dir = Path(job["dir"])
+    old_cwd = Path.cwd()
+    original_wait = globals()["wait_for_internet"]
+    original_popen = subprocess.Popen
+    globals()["wait_for_internet"] = lambda: web_wait_for_internet(job)
+
+    def tracked_popen(*args, **kwargs):
+        proc = original_popen(*args, **kwargs)
+        with JOB_LOCK:
+            job["process"] = proc
+        return proc
+
+    def step(name, progress):
+        raise_if_stopped(job)
+        set_job(job, status="running", step=name, progress=progress, artifacts=list_artifacts(job))
+        append_job_log(job, f"== {name} ==")
+
+    try:
+        os.chdir(run_dir)
+        subprocess.Popen = tracked_popen
+        sink = WebLogSink(job)
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            banner()
+            log_file = setup_logging()
+            domain = config["domain"]
+            print(f"Target: {domain}")
+            print(f"Time:   {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+            step("Checking internet", 5)
+            web_wait_for_internet(job)
+            raise_if_stopped(job)
+            success("Internet connection is OK!")
+
+            step("Finding subdomains", 15)
+            has_subdomains, subdomain_file = find_subdomains(domain)
+            raise_if_stopped(job)
+
+            active_file = None
+            if has_subdomains:
+                step("Checking active subdomains", 30)
+                active_file = find_active_subdomains(subdomain_file, threads=config["threads"])
+                raise_if_stopped(job)
+
+            step("Finding parameters", 45)
+            param_file = find_parameters(domain, has_subdomains, active_file or "activesubdomains.txt")
+            raise_if_stopped(job)
+
+            step("Filtering single parameters", 60)
+            single_file = filter_single_params(param_file)
+            raise_if_stopped(job)
+
+            step("Replacing FUZZ markers", 70)
+            nofuzz_file = replace_fuzz(single_file)
+            raise_if_stopped(job)
+
+            step("Running Dalfox", 85)
+            scan_file = run_dalfox(
+                nofuzz_file,
+                dalfox_mode=config["dalfox_mode"],
+                workers=config["workers"],
+                delay=config["delay"],
+                timeout=config["timeout"],
+            )
+            raise_if_stopped(job)
+
+            step("Extracting vulnerable URLs", 95)
+            extract_vulnerable(scan_file)
+            success(f"Scan finished. Error log: {log_file}")
+
+        set_job(job, status="completed", step="Finished", progress=100, message="Scan finish.", artifacts=list_artifacts(job))
+    except InterruptedError:
+        append_job_log(job, "Scan stopped by user.")
+        set_job(job, status="stopped", step="Stopped By User", message="Stopped by user.", artifacts=list_artifacts(job))
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 1
+        set_job(job, status="failed", message=f"Scanner stopped with exit code {code}.", artifacts=list_artifacts(job))
+        append_job_log(job, f"Scanner stopped with exit code {code}.")
+    except ConnectionError as e:
+        append_job_log(job, str(e))
+        set_job(job, status="paused", artifacts=list_artifacts(job))
+    except Exception as e:
+        logging.exception("Unexpected error in web scan")
+        set_job(job, status="failed", message=str(e), artifacts=list_artifacts(job))
+        append_job_log(job, f"Unexpected error: {e}")
+    finally:
+        globals()["wait_for_internet"] = original_wait
+        subprocess.Popen = original_popen
+        with JOB_LOCK:
+            job["process"] = None
+        os.chdir(old_cwd)
+
+
+class XSSHunterWebHandler(BaseHTTPRequestHandler):
+    server_version = "XSSHunterWeb/1.0"
+
+    def log_message(self, fmt, *args):
+        return
+
+    def send_json(self, data, status=200):
+        payload = json.dumps(data).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def serve_file(self, path, content_type):
+        if not path.exists() or not path.is_file():
+            self.send_error(404)
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        route = parsed.path
+        if route == "/":
+            self.serve_file(WEB_DIR / "index.html", "text/html; charset=utf-8")
+            return
+        if route == "/styles.css":
+            self.serve_file(WEB_DIR / "styles.css", "text/css; charset=utf-8")
+            return
+        if route == "/app.js":
+            self.serve_file(WEB_DIR / "app.js", "application/javascript; charset=utf-8")
+            return
+        if route == "/api/jobs":
+            with JOB_LOCK:
+                data = [public_job(job) for job in JOBS.values()]
+            self.send_json({"jobs": data})
+            return
+        if route.startswith("/api/status/"):
+            job_id = route.rsplit("/", 1)[-1]
+            job = JOBS.get(job_id)
+            if not job:
+                self.send_json({"error": "Job not found"}, 404)
+                return
+            with JOB_LOCK:
+                job["artifacts"] = list_artifacts(job)
+                data = public_job(job)
+            self.send_json(data)
+            return
+        if route.startswith("/api/download/"):
+            parts = route.split("/", 4)
+            if len(parts) < 5:
+                self.send_error(404)
+                return
+            job_id, rel = parts[3], parts[4]
+            job = JOBS.get(job_id)
+            if not job:
+                self.send_error(404)
+                return
+            run_dir = Path(job["dir"]).resolve()
+            file_path = (run_dir / rel).resolve()
+            if run_dir not in file_path.parents or not file_path.is_file():
+                self.send_error(404)
+                return
+            data = file_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", f'attachment; filename="{file_path.name}"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        self.send_error(404)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/stop/"):
+            job_id = parsed.path.rsplit("/", 1)[-1]
+            job = JOBS.get(job_id)
+            if not job:
+                self.send_json({"error": "Job not found"}, 404)
+                return
+            with JOB_LOCK:
+                job["stop_requested"] = True
+                proc = job.get("process")
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    time.sleep(0.5)
+                    if proc.poll() is None:
+                        proc.kill()
+                except Exception as e:
+                    append_job_log(job, f"Stop signal warning: {e}")
+            set_job(job, status="stopped", step="Stopped By User", message="Stopped by user.", artifacts=list_artifacts(job))
+            append_job_log(job, "Stop requested from web dashboard.")
+            self.send_json({"ok": True})
+            return
+
+        if parsed.path.startswith("/api/resume/"):
+            job_id = parsed.path.rsplit("/", 1)[-1]
+            job = JOBS.get(job_id)
+            if not job:
+                self.send_json({"error": "Job not found"}, 404)
+                return
+            with JOB_LOCK:
+                if any(j.get("status") in {"queued", "running", "waiting"} for j in JOBS.values()):
+                    self.send_json({"error": "A scan is already running."}, 409)
+                    return
+                job["stop_requested"] = False
+                job["status"] = "queued"
+                job["step"] = "Queued"
+                job["message"] = "Resume queued."
+                save_job(job)
+                thread = threading.Thread(target=run_web_scan_job, args=(job_id,), daemon=True)
+                job["thread"] = thread
+                thread.start()
+            append_job_log(job, "Resume requested from web dashboard.")
+            self.send_json({"job_id": job_id})
+            return
+
+        if parsed.path != "/api/scan":
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            domain = safe_domain(payload.get("domain"))
+            config = {
+                "domain": domain,
+                "threads": max(1, min(int(payload.get("threads", 20)), 100)),
+                "workers": max(1, min(int(payload.get("workers", 5)), 50)),
+                "delay": max(0, min(int(payload.get("delay", 500)), 10000)),
+                "timeout": max(5, min(int(payload.get("timeout", 30)), 180)),
+                "dalfox_mode": payload.get("dalfox_mode", "default") if payload.get("dalfox_mode") in {"default", "custom"} else "default",
+            }
+            with JOB_LOCK:
+                if any(j.get("status") in {"queued", "running", "waiting"} for j in JOBS.values()):
+                    self.send_json({"error": "A scan is already running. Wait for it to finish or pause."}, 409)
+                    return
+                job_id = uuid.uuid4().hex[:12]
+                run_dir = RUNS_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{domain}_{job_id}"
+                run_dir.mkdir(parents=True, exist_ok=True)
+                job = {
+                    "id": job_id,
+                    "created_at": datetime.now().isoformat(timespec="seconds"),
+                    "updated_at": datetime.now().isoformat(timespec="seconds"),
+                    "dir": str(run_dir),
+                    "config": config,
+                    "status": "queued",
+                    "step": "Queued",
+                    "progress": 0,
+                    "message": "Scan queued.",
+                    "logs": [],
+                    "artifacts": [],
+                    "stop_requested": False,
+                }
+                JOBS[job_id] = job
+                save_job(job)
+                thread = threading.Thread(target=run_web_scan_job, args=(job_id,), daemon=True)
+                job["thread"] = thread
+                thread.start()
+            self.send_json({"job_id": job_id})
+        except ValueError as e:
+            self.send_json({"error": str(e)}, 400)
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
+
+
+def load_saved_jobs():
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    for state_file in RUNS_DIR.glob("*/job_state.json"):
+        try:
+            job = json.loads(state_file.read_text(encoding="utf-8"))
+            job["thread"] = None
+            job["process"] = None
+            if job.get("status") in {"queued", "running", "waiting"}:
+                job["status"] = "stopped"
+                job["step"] = "Stopped By User"
+                job["message"] = "Stopped by user."
+                job["stop_requested"] = True
+            job["artifacts"] = list_artifacts(job)
+            JOBS[job["id"]] = job
+            save_job(job)
+        except Exception:
+            continue
+
+
+def launch_web(host="127.0.0.1", port=8787):
+    WEB_DIR.mkdir(parents=True, exist_ok=True)
+    if not (WEB_DIR / "index.html").exists():
+        error("Web assets missing. Make sure web/index.html, web/styles.css and web/app.js exist.")
+        sys.exit(1)
+    load_saved_jobs()
+    server = None
+    selected_port = port
+    for candidate in range(port, port + 20):
+        try:
+            server = ThreadingHTTPServer((host, candidate), XSSHunterWebHandler)
+            selected_port = candidate
+            break
+        except OSError:
+            continue
+    if server is None:
+        error(f"No free web port found from {port} to {port + 19}.")
+        sys.exit(1)
+    url = f"http://{host}:{selected_port}"
+    success(f"XSS Hunter web interface running at {url}")
+    webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        warn("Web server stopped.")
+    finally:
+        server.server_close()
+
+
+def launch_web_background(host="127.0.0.1", port=8787):
+    cmd = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--web-server",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    success(f"XSS Hunter web started in background: http://{host}:{port}")
+    info("Terminal is free now. Web logs stay inside the dashboard.")
+
+
+def main():
     parser = argparse.ArgumentParser(description="XSS Hunter v2.0 - Automated Reflected XSS Scanner")
-    parser.add_argument("-d", "--domain", required=True, help="Target domain (e.g., example.com)")
+    parser.add_argument("--web", action="store_true", help="Launch the local web dashboard")
+    parser.add_argument("--web-server", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--host", default="127.0.0.1", help="Web dashboard host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8787, help="Web dashboard port (default: 8787)")
+    parser.add_argument("-d", "--domain", help="Target domain (e.g., example.com)")
     parser.add_argument("--threads", type=int, default=20, help="Active check threads (default: 20)")
     parser.add_argument("--workers", type=int, default=5, help="Dalfox workers (default: 5)")
     parser.add_argument("--delay", type=int, default=500, help="Dalfox delay ms (default: 500)")
     parser.add_argument("--timeout", type=int, default=30, help="Dalfox timeout seconds (default: 30)")
     parser.add_argument("--dalfox-mode", choices=["default", "custom"], default="default", help="default=dalfox ki apni settings, custom=workers/delay/timeout tu decide kare (default: default)")
     args = parser.parse_args()
+
+    if args.web_server:
+        launch_web(args.host, args.port)
+        return
+
+    if args.web:
+        launch_web_background(args.host, args.port)
+        return
+
+    if not args.domain:
+        parser.error("the following arguments are required for CLI mode: -d/--domain")
+
+    banner()
+    log_file = setup_logging()
 
     domain = args.domain
 
