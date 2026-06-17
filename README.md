@@ -27,8 +27,7 @@ It chains together trusted tools like **Subfinder**, **ParamSpider**, and **Dalf
 
 Now it also includes a full **local web dashboard**:
 
-- Netflix-style animated intro
-- Pink + cyan hacker theme
+- Animated intro
 - Live scan logs
 - Stop scan
 - Resume stopped scan
@@ -112,8 +111,8 @@ Target Domain
 
 | Feature | Description |
 |---|---|
-| 🎬 Cinematic Intro | Netflix-style `XSS HUNTER` intro animation |
-| 🌈 Theme Variant | Alternates red and pink/cyan glassmorphism intro styles |
+| 🎬 Cinematic Intro | `XSS HUNTER` intro animation |
+| 🌈 Theme Variant | Alternates intro styles |
 | 📊 Live Status | Shows `Running`, `Waiting`, `Stopped By User`, and `Scan Finish` |
 | 🛑 Stop Scan | Stop the current scan from the web UI |
 | 🔁 Resume Scan | Resume a stopped scan from the dashboard |
@@ -302,22 +301,6 @@ Web mode stores each scan in its own `runs/` folder, so manual cleanup is usuall
 
 ---
 
-## 🧩 Project Structure
-
-```text
-XSS-HUNTER/
-├── README.md
-├── LICENSE
-├── install.sh
-├── xsshunter
-├── xsshunter.py
-├── WEB_README.md
-├── .gitignore
-└── web/
-    ├── index.html
-    ├── styles.css
-    └── app.js
-```
 
 ---
 
