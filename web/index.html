@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XSS Hunter Web | EnCrYpTeD05</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <script>
+    (() => {
+      const key = "xsshunter_intro_theme_count";
+      const count = Number(localStorage.getItem(key) || "0") + 1;
+      localStorage.setItem(key, String(count));
+      document.documentElement.classList.add(count % 2 === 0 ? "intro-neon" : "intro-red");
+    })();
+  </script>
+  <link rel="stylesheet" href="/styles.css?v=5">
+</head>
+<body>
+  <div class="bg-layer"></div>
+  <div class="grid-bg"></div>
+
+  <section id="intro" class="intro">
+    <div class="intro-stage" aria-label="XSS Hunter intro animation">
+      <div class="intro-word word-xss">XSS</div>
+      <div class="intro-word word-hunter">HUNTER</div>
+      <div class="intro-title" aria-hidden="true">
+        <span>XSS</span><span>HUNTER</span>
+      </div>
+      <div class="intro-tunnel" aria-hidden="true"></div>
+    </div>
+    <div class="intro-sub">Reflected XSS scanner by EnCrYpTeD05</div>
+  </section>
+
+  <main id="app" class="app-shell hidden">
+    <nav class="topbar">
+      <a class="brand" href="/">XSS HUNTER<span>_WEB</span></a>
+      <div class="nav-actions">
+        <a class="btn ghost" href="https://encrypted05.github.io" target="_blank" rel="noreferrer">Website</a>
+        <a class="btn ghost" href="https://github.com/EnCrYpTeD05" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </nav>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">// AUTOMATED REFLECTED XSS WORKBENCH</p>
+        <h1>Run the full CLI scanner from a clean web cockpit.</h1>
+        <p class="hero-copy">
+          Subfinder, active probing, ParamSpider, FUZZ cleanup, Dalfox, vulnerable URL extraction,
+          live logs, partial-save handling, and selective downloads in one dashboard.
+        </p>
+      </div>
+      <div class="status-panel">
+        <span class="panel-label">Current State</span>
+        <strong id="stateText">Idle</strong>
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <small id="stepText">Ready for target input.</small>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <form id="scanForm" class="scan-panel">
+        <div class="section-head">
+          <span>// TARGET</span>
+          <strong>Scan Control</strong>
+        </div>
+        <label>
+          Domain
+          <input id="domain" name="domain" placeholder="example.com" autocomplete="off" required>
+        </label>
+        <div class="control-grid">
+          <label>
+            Active Threads
+            <input id="threads" name="threads" type="number" min="1" max="100" value="20">
+          </label>
+          <label>
+            Dalfox Workers
+            <input id="workers" name="workers" type="number" min="1" max="50" value="5">
+          </label>
+          <label>
+            Delay MS
+            <input id="delay" name="delay" type="number" min="0" max="10000" value="500">
+          </label>
+          <label>
+            Timeout SEC
+            <input id="timeout" name="timeout" type="number" min="5" max="180" value="30">
+          </label>
+        </div>
+        <label>
+          Dalfox Mode
+          <select id="dalfox_mode" name="dalfox_mode">
+            <option value="default">Default WAF evasion</option>
+            <option value="custom">Custom workers/delay/timeout</option>
+          </select>
+        </label>
+        <button id="startBtn" class="btn primary" type="submit">Start Scan</button>
+        <p id="formError" class="form-error"></p>
+      </form>
+
+      <section class="terminal-panel">
+        <div class="terminal-bar">
+          <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+          <strong>xsshunter-live.log</strong>
+        </div>
+        <pre id="logs" class="logs">Waiting for scan...</pre>
+      </section>
+    </section>
+
+    <section class="results-grid">
+      <div class="result-panel">
+        <div class="section-head">
+          <span>// OUTPUTS</span>
+          <strong>Download Files</strong>
+        </div>
+        <div id="artifacts" class="artifact-list">
+          <p class="empty">Output files will appear here after each scanner step.</p>
+        </div>
+      </div>
+      <div class="result-panel">
+        <div class="section-head">
+          <span>// RUNS</span>
+          <strong>Session History</strong>
+        </div>
+        <div id="history" class="history-list">
+          <p class="empty">No previous web runs loaded.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span>Created by <b>EnCrYpTeD05</b></span>
+    </footer>
+  </main>
+
+  <script src="/app.js?v=5"></script>
+</body>
+</html>
